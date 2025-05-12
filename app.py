@@ -4,15 +4,16 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import io
 
+# App config
 st.set_page_config(page_title="📈 Stock Data Scraper", layout="centered")
 
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# Initialize session state
-if "stock_memory" not in st.session_state:
-    st.session_state.stock_memory = {}
+# Session state to store full stock table
+if "stock_table" not in st.session_state:
+    st.session_state.stock_table = pd.DataFrame()
 
 def get_stock_data(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}"
@@ -32,7 +33,7 @@ def get_stock_data(ticker):
             data[key] = value
     return data
 
-# --- UI ---
+# UI starts
 st.title("📊 Finviz Stock Data Scraper")
 
 ticker = st.text_input("Enter Stock Ticker Symbol (e.g., TSLA, AAPL):", "").upper()
@@ -47,30 +48,42 @@ if ticker:
         selected_keys = st.multiselect("Select data fields to include:", all_keys)
 
         if selected_keys:
-            # Update stored memory for this ticker
-            for key in selected_keys:
-                value = stock_data.get(key, "")
-                if ticker not in st.session_state.stock_memory:
-                    st.session_state.stock_memory[ticker] = {}
-                st.session_state.stock_memory[ticker][key] = value
+            # Extract only selected data
+            selected_data = {key: stock_data.get(key, "") for key in selected_keys}
+            df = pd.DataFrame([selected_data], index=[ticker]).astype("string")
 
-            # Display updated memory
-            st.subheader(f"📋 Stored Data for {ticker}")
-            for k, v in st.session_state.stock_memory[ticker].items():
-                st.write(f"**{k}**: {v}")
+            # Merge with session-wide table
+            existing = st.session_state.stock_table
 
-            # Create DataFrame for download
-            df = pd.DataFrame([st.session_state.stock_memory[ticker]], index=[ticker]).astype("string")
+            if ticker in existing.index:
+                for col in selected_data:
+                    existing.loc[ticker, col] = str(selected_data[col])
+            else:
+                existing = pd.concat([existing, df])
 
-            buffer = io.BytesIO()
-            df.to_excel(buffer, engine='openpyxl')
-            buffer.seek(0)
+            # Add missing columns
+            for col in df.columns:
+                if col not in existing.columns:
+                    existing[col] = None
+                    existing.loc[ticker, col] = str(df[col].iloc[0])
 
-            st.download_button(
-                label="📥 Download Excel",
-                data=buffer,
-                file_name=f"{ticker}_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-    else:
-        st.error("❌ Failed to fetch data. Please check the ticker.")
+            st.session_state.stock_table = existing
+
+            st.success(f"✅ Data for {ticker} added to master sheet!")
+
+# Show the full table
+if not st.session_state.stock_table.empty:
+    st.markdown("### 🧾 All Stocks Collected So Far")
+    st.dataframe(st.session_state.stock_table)
+
+    # Download button for full sheet
+    buffer = io.BytesIO()
+    st.session_state.stock_table.to_excel(buffer, engine='openpyxl')
+    buffer.seek(0)
+
+    st.download_button(
+        label="📥 Download Full Excel Sheet",
+        data=buffer,
+        file_name="all_stock_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
