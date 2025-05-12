@@ -3,17 +3,20 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import io
+import os
 
-# App config
 st.set_page_config(page_title="📈 Stock Data Scraper", layout="centered")
 
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# Session state to store full stock table
+# Load from disk on app start (only once)
 if "stock_table" not in st.session_state:
-    st.session_state.stock_table = pd.DataFrame()
+    if os.path.exists("all_stock_data.xlsx"):
+        st.session_state.stock_table = pd.read_excel("all_stock_data.xlsx", index_col=0).astype("string")
+    else:
+        st.session_state.stock_table = pd.DataFrame()
 
 def get_stock_data(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}"
@@ -33,7 +36,7 @@ def get_stock_data(ticker):
             data[key] = value
     return data
 
-# UI starts
+# --- UI starts here ---
 st.title("📊 Finviz Stock Data Scraper")
 
 ticker = st.text_input("Enter Stock Ticker Symbol (e.g., TSLA, AAPL):", "").upper()
@@ -48,11 +51,9 @@ if ticker:
         selected_keys = st.multiselect("Select data fields to include:", all_keys)
 
         if selected_keys:
-            # Extract only selected data
             selected_data = {key: stock_data.get(key, "") for key in selected_keys}
             df = pd.DataFrame([selected_data], index=[ticker]).astype("string")
 
-            # Merge with session-wide table
             existing = st.session_state.stock_table
 
             if ticker in existing.index:
@@ -61,7 +62,6 @@ if ticker:
             else:
                 existing = pd.concat([existing, df])
 
-            # Add missing columns
             for col in df.columns:
                 if col not in existing.columns:
                     existing[col] = None
@@ -69,14 +69,16 @@ if ticker:
 
             st.session_state.stock_table = existing
 
-            st.success(f"✅ Data for {ticker} added to master sheet!")
+            # 🔥 Save to disk persistently
+            st.session_state.stock_table.to_excel("all_stock_data.xlsx")
 
-# Show the full table
+            st.success(f"✅ Data for {ticker} saved and stored locally!")
+
+# Show and download
 if not st.session_state.stock_table.empty:
-    st.markdown("### 🧾 All Stocks Collected So Far")
+    st.markdown("### 🧾 All Stored Stock Data")
     st.dataframe(st.session_state.stock_table)
 
-    # Download button for full sheet
     buffer = io.BytesIO()
     st.session_state.stock_table.to_excel(buffer, engine='openpyxl')
     buffer.seek(0)
