@@ -4,12 +4,15 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import io
 
-# App config
 st.set_page_config(page_title="📈 Stock Data Scraper", layout="centered")
 
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
+
+# Initialize session state
+if "stock_memory" not in st.session_state:
+    st.session_state.stock_memory = {}
 
 def get_stock_data(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}"
@@ -29,7 +32,7 @@ def get_stock_data(ticker):
             data[key] = value
     return data
 
-# Streamlit UI
+# --- UI ---
 st.title("📊 Finviz Stock Data Scraper")
 
 ticker = st.text_input("Enter Stock Ticker Symbol (e.g., TSLA, AAPL):", "").upper()
@@ -44,14 +47,21 @@ if ticker:
         selected_keys = st.multiselect("Select data fields to include:", all_keys)
 
         if selected_keys:
-            selected_data = {key: stock_data.get(key, "") for key in selected_keys}
-            df = pd.DataFrame([selected_data], index=[ticker]).astype("string")
-
-            st.subheader(f"📋 Selected Data for {ticker}")
+            # Update stored memory for this ticker
             for key in selected_keys:
-                st.write(f"**{key}**: {selected_data.get(key, '❌ Not found')}")
+                value = stock_data.get(key, "")
+                if ticker not in st.session_state.stock_memory:
+                    st.session_state.stock_memory[ticker] = {}
+                st.session_state.stock_memory[ticker][key] = value
 
-            # Download button
+            # Display updated memory
+            st.subheader(f"📋 Stored Data for {ticker}")
+            for k, v in st.session_state.stock_memory[ticker].items():
+                st.write(f"**{k}**: {v}")
+
+            # Create DataFrame for download
+            df = pd.DataFrame([st.session_state.stock_memory[ticker]], index=[ticker]).astype("string")
+
             buffer = io.BytesIO()
             df.to_excel(buffer, engine='openpyxl')
             buffer.seek(0)
